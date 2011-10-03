@@ -1,0 +1,13 @@
+name: WorldGameMode
+main: com.moosemanstudios.WorldGameMode.WorldGameMode
+version: 1.0
+commands:
+    wgm:
+        description: parent command for the sub commands
+permissions:
+    wgm.reload:
+        description: reloads the config file
+    wgm.change:
+        description: change what game mode each world is
+    wgm.list:
+        description: display list of worlds and hte mode they are in currently
