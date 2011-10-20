@@ -26,12 +26,24 @@ public class WGMPlayerListener extends PlayerListener {
 		// alrighty, get the mode for the current world
 		GameMode mode = plugin.worldGameModes.get(world);
 		
-		// check the current game mode of the player
-		GameMode playerMode = player.getGameMode();
-		
-		if (playerMode != mode) {
-			player.setGameMode(mode);
+		if (mode != null) {
+			// check the current game mode of the player
+			GameMode playerMode = player.getGameMode();
+			
+			//TODO: save the player inventory to disk first
+			
+			if (playerMode != mode) {
+				player.setGameMode(mode);
+			}
+		} else {
+			plugin.log.info("[WorldGameMode] World: " + world.getName() + " is not in the configuration.  World added and set as survival.");
+			plugin.worldGameModes.put(world, GameMode.SURVIVAL);
+			plugin.getConfig().set(world.getName(), plugin.survival);
+			plugin.saveConfig();
+			return;
 		}
+		
+
 	}
 	
 	public void change_player_mode(Player player, World world) {

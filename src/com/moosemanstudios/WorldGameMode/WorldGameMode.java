@@ -1,8 +1,8 @@
 package com.moosemanstudios.WorldGameMode;
 
-import java.io.File;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.logging.Logger;
 
 import org.bukkit.ChatColor;
@@ -16,7 +16,6 @@ import org.bukkit.event.Event.Type;
 import org.bukkit.plugin.PluginDescriptionFile;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.util.config.Configuration;
 
 public class WorldGameMode extends JavaPlugin {
 	public Logger log = Logger.getLogger("minecraft");
@@ -24,23 +23,21 @@ public class WorldGameMode extends JavaPlugin {
 	static String mainDirectory = "plugins/WorldGameMode";
 	final String survival = "survival";
 	final String creative = "creative";
-	Configuration conf;
-	PluginManager pm;
+	private PluginManager pm;
 	private final WGMPlayerListener playerlistener = new WGMPlayerListener(this);
 	
 	public void onDisable() {
 		log.info("[WorldGameMode] is disabled");
+		save_config();
 		
 	}
 
 	public void onEnable() {
-		
-		// create the config if it doesn't exist
-		conf = this.getConfiguration();
+		// create and load the config
 		create_config();
-		
-		reload_config();
-		
+		load_config();
+		reload_players();
+	
 		pm = this.getServer().getPluginManager();
 		pm.registerEvent(Type.PLAYER_JOIN, playerlistener, Priority.Normal, this);
 		pm.registerEvent(Type.PLAYER_CHANGED_WORLD, playerlistener, Priority.Normal, this);
@@ -50,154 +47,182 @@ public class WorldGameMode extends JavaPlugin {
 	}
 	
 	public boolean onCommand(CommandSender sender, Command cmd, String commandLabel, String[] args) {
-		Player player = (Player) sender;
-		
-		String[] split = args;
 		String commandName = cmd.getName().toLowerCase();
 		
 		if (commandName.equalsIgnoreCase("wgm")) {
-			// make sure they actually added terms to the command
-			if (split.length == 0) {
-				sender.sendMessage(ChatColor.RED + "Type " + ChatColor.WHITE + "/wgm help" + ChatColor.RED + " for help");
+			if (args.length == 0) {
+				sender.sendMessage(ChatColor.RED + "Tupe " + ChatColor.WHITE + "/wgm help" + ChatColor.RED + " for help");
+			}
+			
+			if (args[0].equalsIgnoreCase("help")) {
+				sender.sendMessage("WorldGameMode help");
+				sender.sendMessage("----------------------------------------");
+				sender.sendMessage(ChatColor.RED + "/wgm help" + ChatColor.WHITE + ": Display the help screen");
+				
+				if (sender.hasPermission("wgm.admin")) {
+					sender.sendMessage(ChatColor.RED + "/wgm reload" + ChatColor.WHITE + ": Reloads the config file");
+					sender.sendMessage(ChatColor.RED + "/wgm change [world] (creative/survival)" + ChatColor.WHITE + ": Changes specified worlds game mode");
+				}
+				if (sender.hasPermission("wgm.list")) {
+					sender.sendMessage(ChatColor.RED + "/wgm list" + ChatColor.WHITE + ": Lists what mode each world is in");
+				}
+				if (sender.hasPermission("wgm.mode")) {
+					sender.sendMessage(ChatColor.RED + "/wgm mode (creative/survival)" + ChatColor.WHITE + ": Allows user to change there mode seperate from world");
+				}
 				return true;
 			}
 			
-			if (split[0].equalsIgnoreCase("help")) {
-				player.sendMessage(ChatColor.YELLOW + "WorldGameMode help");
-				player.sendMessage(ChatColor.GRAY + "-----------------------------------");
-				player.sendMessage(ChatColor.RED + "/wgm help" + ChatColor.WHITE + ": Display the help screen");
-				
-				// display the help menu based on the users permissions
-				if (player.hasPermission("wgm.reload")) {
-					player.sendMessage(ChatColor.RED + "/wgm reload" + ChatColor.WHITE + ": Reloads config file");
-				}
-				if (player.hasPermission("wgm.change")) {
-					player.sendMessage(ChatColor.RED + "/wgm change [world] (creative/survival)" + ChatColor.WHITE + ": Changes specified worlds game mode");
-				}
-				if (player.hasPermission("wgm.list")) {
-					player.sendMessage(ChatColor.RED + "/wgm list" + ChatColor.WHITE + ": Lists the worlds and current game type");
-				}
-				
-				return true;
-			}
-			
-			if (split[0].equalsIgnoreCase("reload")) {
-				if (player.hasPermission("wgm.reload")) {
-					reload_config();
-					player.sendMessage("WorldGameMode config reloaded");
-					log.info("[WorldGameMode] " + player.getName() + " reloaded config");
-					return true;
+			if (args[0].equalsIgnoreCase("reload")) {
+				if (sender.hasPermission("wgm.admin")) {
+					load_config();
+					reload_players();
+					sender.sendMessage("WorldGameMode config reloaded");
+					log.info("[WorldGameMode] " + sender.getName() + " reloaded config");
 				} else {
-					player.sendMessage(ChatColor.RED + "You don't have permissions to do that!");
-					return true;
+					sender.sendMessage(ChatColor.RED + "You don't have permissions to do that!");
 				}
-			}
-			
-			if (split[0].equalsIgnoreCase("change")) {
-				String worldChange = split[1];
-				String modeChange = split[2];
-				
-				// check and make sure that the user specified a valid game mode
-				if (!(modeChange.equalsIgnoreCase(survival) || modeChange.equalsIgnoreCase(creative) )) {
-					player.sendMessage(ChatColor.RED + "Unrecognized game mode: " + modeChange);
-					return true;
-				}
-				
-				// check that the world they specified is valid
-				// based on the server not hte hash, possible they created a new world
-				World tempWorld = this.getServer().getWorld(worldChange);	
-				if (tempWorld == null) {
-					player.sendMessage(ChatColor.RED + "Invalid world: " + worldChange);
-					return true;
-				}
-				
-				// at this point the input is valid, go ahead and add/update the hashmap
-				if (modeChange.equalsIgnoreCase(survival)) {
-					worldGameModes.put(tempWorld, GameMode.SURVIVAL);
-				} else {
-					worldGameModes.put(tempWorld, GameMode.CREATIVE);
-				}
-				
-				// at this point, get all the players on the specified world and change there game mode to reflect the change
-				List<Player> worldPlayers = this.getServer().getWorld(worldChange).getPlayers();
-				for (Player tempPlayer : worldPlayers) {
-					playerlistener.change_player_mode(tempPlayer, this.getServer().getWorld(worldChange));
-					tempPlayer.sendMessage("Worlds game mode has been changed");
-				}
-				
-				player.sendMessage("World " + tempWorld.getName() + " mode successfully changed to " + modeChange);
-					
 				return true;
 			}
 			
-			if (split[0].equalsIgnoreCase("list")) {
-				if (player.hasPermission("wgm.list")) {
-					player.sendMessage(ChatColor.YELLOW + "WorldGameMode");
-					player.sendMessage(ChatColor.GRAY + "-----------------------------------");
-					
-					// get the list of keys to use for iterating
-					for (World key : worldGameModes.keySet()) {
-						GameMode tempMode = worldGameModes.get(key);
+			if (args[0].equalsIgnoreCase("mode")) {
+				if (sender instanceof Player) {
+					if (sender.hasPermission("wgm.mode")) {
+						String mode = args[1];
 						
-						if (tempMode == GameMode.SURVIVAL) {
-							player.sendMessage(key.getName() + ": " + ChatColor.BLUE +  "SURVIVAL");
+						if (mode.equalsIgnoreCase(creative)) {
+							((Player) sender).setGameMode(GameMode.CREATIVE);
+						} else if (mode.equalsIgnoreCase(survival)) {
+							((Player) sender).setGameMode(GameMode.SURVIVAL);
 						} else {
-							player.sendMessage(key.getName() + ": " + ChatColor.GREEN + "CREATIVE");
+							sender.sendMessage(ChatColor.RED + "Invalid mode");
 						}
-					}	
-					
-					return true;
+					} else {
+						sender.sendMessage(ChatColor.RED + "You don't have permissions to do that!");
+					}
 				} else {
-					player.sendMessage(ChatColor.RED + "You don't have permissions to do that!");
-					return true;
+					sender.sendMessage(ChatColor.RED + "Sorry, this command is only available to players");
 				}
+				
+				return true;
 			}
-		}		
-		
+			
+			if (args[0].equalsIgnoreCase("change")) {
+				String world = args[1];
+				String newMode = args[2];
+				
+				if (newMode.equalsIgnoreCase(survival)) {
+					World tempWorld = this.getServer().getWorld(world);
+					
+					if (tempWorld != null) {
+						worldGameModes.put(tempWorld, GameMode.SURVIVAL);
+						getConfig().set(tempWorld.getName(), survival);
+						saveConfig();
+						reload_players();
+						log.info("[WorldGameMode] " + world + " game mode changed to " + newMode);
+						sender.sendMessage(world + " mode changed to SURVIVAL successfully!");
+					} else {
+						sender.sendMessage(ChatColor.RED + "Invalid world: " + world);
+					}
+				} else if (newMode.equalsIgnoreCase(creative)) {
+					World tempWorld = this.getServer().getWorld(world);
+					if (tempWorld != null) {
+						worldGameModes.put(tempWorld, GameMode.CREATIVE);
+						getConfig().set(tempWorld.getName(), creative);
+						saveConfig();
+						reload_players();
+						log.info("[WorldGameMode] " + world + " game mode changed to " + newMode);
+						sender.sendMessage(world + " mode changed to CREATIVE successfully!");
+					} else {
+						sender.sendMessage(ChatColor.RED + "Invalid world: " + world);
+					}
+				}
+				return true;
+			}
+			
+			if (args[0].equalsIgnoreCase("list")) {
+				if (sender.hasPermission("wgm.list")) {
+					sender.sendMessage("WorldGameMode");
+					sender.sendMessage("--------------------------------------------");
+					
+					for (World key : worldGameModes.keySet()) {
+						if (worldGameModes.get(key) == GameMode.SURVIVAL) {
+							sender.sendMessage(key.getName() + ": " + ChatColor.BLUE + "SURVIVAL");
+						} else {
+							sender.sendMessage(key.getName() + ": " + ChatColor.GREEN + "CREATIVE");
+						}
+					}
+				} else {
+					sender.sendMessage(ChatColor.RED + "You don't have permissions to do that!");
+				}
+				return true;
+			}
+		}
 		return false;
 	}
 	
 	private void create_config() {
-		new File(mainDirectory).mkdir();
-
-		// get list of all the worlds
 		List<World> worlds = this.getServer().getWorlds();
 		
-		// loop through the worlds and see if they exist in the config
 		for (World world : worlds) {
-			if (!propertyExists(world.getName())) {
-				conf.setProperty(world.getName(), survival);
+			// see if the world has a value stored
+			if (!getConfig().contains(world.getName())) {
+				// world doesn't exist yet, lets add it now
+				getConfig().set(world.getName(), survival);
 			}
 		}
-		conf.save();
 		
+		saveConfig();
 	}
 	
-	private void reload_config() {
-		conf.load();
+	private void load_config() {
+		this.reloadConfig();
 		
-		List<String> worldKeys = conf.getKeys();
+		// get copy of they keys
+		Set<String> keys = this.getConfig().getKeys(true);
 		
-		for (String world : worldKeys) {
-			World tempWorld = this.getServer().getWorld(world);
-			String gameMode = conf.getString(world);
+		for (String key : keys) {
+			World world = this.getServer().getWorld(key);
 			
-			// make sure the world exists
-			if (tempWorld != null) {
-				if (gameMode.equalsIgnoreCase(survival)) {
-					worldGameModes.put(tempWorld, GameMode.SURVIVAL);
-					log.info("[WorldGameMode] world " + tempWorld.getName() + "; gamemode survival");
-				} else {
-					worldGameModes.put(tempWorld, GameMode.CREATIVE);
-					log.info("[WorldGameMode] world " + tempWorld.getName() + "; gamemode creative");
-				}
+			if (this.getConfig().getString(key).equalsIgnoreCase(creative)) {
+				worldGameModes.put(world, GameMode.CREATIVE);
+				log.info("[WorldGameMode] loaded world: " + world.getName() + " mode: CREATIVE");
+			} else if (this.getConfig().getString(key).equalsIgnoreCase(survival)) {
+				worldGameModes.put(world, GameMode.SURVIVAL);
+				log.info("[WorldGameMode] loaded world: " + world.getName() + " mode: SURVIVAL");
+			} else {
+				log.info("[WorldGameMode] Error loading record in save file! Mode not found for world " + world.getName());
+			}
+		}
+	}
+	
+	private void save_config() {
+		for (World key : worldGameModes.keySet()) {
+			if (worldGameModes.get(key) == GameMode.CREATIVE) {
+				getConfig().set(key.getName() , null);
+				getConfig().set(key.getName() , creative);
+				log.info("[WorldgameMode] saved world: " + key.getName() + " mode: CREATIVE");
+			} else if (worldGameModes.get(key) == GameMode.SURVIVAL) {
+				getConfig().set(key.getName(), null);
+				getConfig().set(key.getName(), survival);
+				log.info("[WorldGameMode] saved world: " + key.getName() + " mode: SURVIVAL");
+			} else {
+				log.info("[WorldGameModes] Error saving config file!");
 			}
 		}
 		
-		
+		saveConfig();
 	}
 	
-	private boolean propertyExists(String path) {
-		return this.getConfiguration().getProperty(path) != null;
+	private void reload_players() {
+		Player[] players = this.getServer().getOnlinePlayers();
+		
+		for (Player player : players) {
+			World world = player.getWorld();
+			if (worldGameModes.get(world) == GameMode.CREATIVE) {
+				player.setGameMode(GameMode.CREATIVE);
+			} else {
+				player.setGameMode(GameMode.SURVIVAL);
+			}
+		}
 	}
 }
